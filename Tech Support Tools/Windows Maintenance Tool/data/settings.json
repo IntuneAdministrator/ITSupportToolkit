@@ -1,0 +1,34 @@
+{
+    "TempCleanup":  {
+
+                    },
+    "RegistryScan":  {
+
+                     },
+    "WingetIgnore":  [
+
+                     ],
+    "WingetIncludeUnknown":  true,
+    "LoadWinapp2":  false,
+    "LoadCleanerML":  false,
+    "EnabledProviders":  [
+                             "winget",
+                             "msstore",
+                             "pip",
+                             "npm",
+                             "chocolatey"
+                         ],
+    "CustomDnsServers":  {
+
+                         },
+    "CustomDohTemplate":  "",
+    "CustomDohEnabled":  false,
+    "Theme":  "dark",
+    "WindowState":  "Normal",
+    "WindowBounds":  {
+                         "Left":  331,
+                         "Width":  1280,
+                         "Top":  137,
+                         "Height":  820
+                     }
+}
