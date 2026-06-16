@@ -1,0 +1,23 @@
+﻿**********************
+Windows PowerShell transcript start
+Start time: 20260616133107
+Username: DESKTOP-6GJKHVP\Allester Padovani
+RunAs User: DESKTOP-6GJKHVP\Allester Padovani
+Configuration Name: 
+Machine: DESKTOP-6GJKHVP (Microsoft Windows NT 10.0.26200.0)
+Host Application: PowerShell -NoProfile -ExecutionPolicy Bypass -File C:\Users\Allester Padovani\Downloads\Win11Debloat-master\Win11Debloat.ps1
+Process ID: 92744
+PSVersion: 5.1.26100.8655
+PSEdition: Desktop
+PSCompatibleVersions: 1.0, 2.0, 3.0, 4.0, 5.0, 5.1.26100.8655
+BuildVersion: 10.0.26100.8655
+CLRVersion: 4.0.30319.42000
+WSManStackVersion: 3.0
+PSRemotingProtocolVersion: 2.3
+SerializationVersion: 1.1.0.1
+**********************
+Retrieving installed apps via winget...
+**********************
+Windows PowerShell transcript end
+End time: 20260616133206
+**********************
