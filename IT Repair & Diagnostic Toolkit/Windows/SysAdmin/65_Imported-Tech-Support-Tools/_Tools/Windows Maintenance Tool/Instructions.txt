@@ -1,0 +1,6 @@
+How to Launch:
+1) Right-click and Extract (Extract All) zip file.
+2) Open newly created folder. (Keep both the BAT and PS1 in the same folder.)
+3) Right-click and run Start_WMT_GUI.bat as Administrator
+
+https://www.oldergeeks.com/downloads/file.php?id=4876

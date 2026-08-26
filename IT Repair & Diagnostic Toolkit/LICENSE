@@ -1,0 +1,22 @@
+Copyright (c) 2026 Allester Padovani
+
+All rights reserved.
+
+This software and associated documentation files (the "Software") are the
+proprietary property of Allester Padovani.
+
+Permission is granted to use and redistribute the Software for IT support and
+systems administration (including sharing the package with your team), provided
+that this copyright notice and license text remain intact.
+
+Sale, rebranding, or sublicensing of the Software for commercial resale is not
+permitted without prior written consent from the copyright holder.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHOR BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY ARISING FROM USE
+OF THE SOFTWARE.
+
+Third-party tools bundled under category `_Tools` folders (Microsoft Sysinternals,
+vendor utilities, imported packages) remain under their respective licenses.

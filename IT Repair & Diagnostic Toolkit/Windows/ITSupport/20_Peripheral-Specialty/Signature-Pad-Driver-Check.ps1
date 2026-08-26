@@ -1,0 +1,342 @@
+﻿#Requires -RunAsAdministrator
+#Requires -Version 5.1
+<#
+.SYNOPSIS
+    Enterprise IT tool: Signature Pad Driver Check
+.DESCRIPTION
+    Phase 10 expansion (ITSupport/20_Peripheral-Specialty). Join-state aware, Intune-compatible, HTML + transcript.
+.EXAMPLE
+    .\Signature-Pad-Driver-Check.ps1
+.EXAMPLE
+    .\Signature-Pad-Driver-Check.ps1 -WhatIf
+.NOTES
+    Author: Allester Padovani | Version: 1.2.0 | Windows
+#>
+[CmdletBinding(SupportsShouldProcess=$true, ConfirmImpact='Medium')]
+param([bool]$OpenReport=$true)
+Set-StrictMode -Version Latest
+$ErrorActionPreference='Stop'
+$ScriptName=Split-Path $PSCommandPath -Leaf
+$stamp=Get-Date -Format 'yyyyMMdd_HHmmss'
+$LogDir='C:\IT-Logs'; $ReportDir='C:\IT-Logs\Reports'; $BackupDir='C:\IT-Logs\Backups'
+New-Item -ItemType Directory -Path $LogDir,$ReportDir,$BackupDir -Force|Out-Null
+$LogPath=Join-Path $LogDir ("{0}_{1}.log" -f $ScriptName,$stamp)
+$ReportPath=Join-Path $ReportDir ("{0}_{1}.html" -f ($ScriptName -replace '\.ps1$',''),$stamp)
+Start-Transcript -Path $LogPath -Append|Out-Null
+# IT-Repair-Scripts — Shared Common Library (embedded into every script at generation time)
+# Do not run this file standalone; it is concatenated into generated scripts.
+
+function Write-Status {
+    param(
+        [Parameter(Mandatory)][string]$Message,
+        [ValidateSet('INFO','SUCCESS','WARNING','ERROR')][string]$Level = 'INFO'
+    )
+    $colors = @{ INFO = 'Cyan'; SUCCESS = 'Green'; WARNING = 'Yellow'; ERROR = 'Red' }
+    $ts = Get-Date -Format 'HH:mm:ss'
+    Write-Host "[$Level] $ts $Message" -ForegroundColor $colors[$Level]
+}
+
+function Write-ProgressStep {
+    param(
+        [Parameter(Mandatory)][int]$Step,
+        [Parameter(Mandatory)][int]$Total,
+        [Parameter(Mandatory)][string]$Activity,
+        [Parameter(Mandatory)][string]$Status
+    )
+    $pct    = [int](($Step / [Math]::Max($Total, 1)) * 100)
+    if ($pct -gt 100) { $pct = 100 }
+    $filled = [Math]::Min(20, [int]($pct / 5))
+    $bar    = '[' + ('█' * $filled) + ('░' * (20 - $filled)) + "]  $pct%"
+    Write-Progress -Activity $Activity -Status "$Status ($Step/$Total)" -PercentComplete $pct
+    Write-Status "$bar  Step $Step/$Total — $Status" -Level INFO
+}
+
+function Write-SectionBanner {
+    param([Parameter(Mandatory)][string]$Name)
+    Write-Host "`n══════════════════════════════════════════" -ForegroundColor DarkCyan
+    Write-Host "  [$Name]" -ForegroundColor Cyan
+    Write-Host "══════════════════════════════════════════`n" -ForegroundColor DarkCyan
+}
+
+function Get-JoinState {
+    $state = [ordered]@{
+        IsAzureADJoined = $false
+        IsDomainJoined  = $false
+        IsHybridJoined  = $false
+        Label           = 'Workgroup (not domain joined)'
+        DomainName      = $env:USERDOMAIN
+        Raw             = ''
+    }
+    try {
+        $dsregOutput = & dsregcmd /status 2>&1 | Out-String
+        $state.Raw = $dsregOutput
+        $state.IsAzureADJoined = ($dsregOutput -match 'AzureAdJoined\s*:\s*YES')
+        $state.IsDomainJoined  = ($dsregOutput -match 'DomainJoined\s*:\s*YES')
+        $state.IsHybridJoined  = $state.IsAzureADJoined -and $state.IsDomainJoined
+        if ($state.IsHybridJoined) {
+            $state.Label = 'Hybrid (on-prem AD + Entra ID)'
+        } elseif ($state.IsDomainJoined) {
+            $state.Label = 'On-premises AD only'
+        } elseif ($state.IsAzureADJoined) {
+            $state.Label = 'Azure AD / Entra ID only'
+        }
+        $dn = [regex]::Match($dsregOutput, 'DomainName\s*:\s*(.+)')
+        if ($dn.Success) { $state.DomainName = $dn.Groups[1].Value.Trim() }
+    } catch {
+        Write-Status "dsregcmd unavailable; using Win32_ComputerSystem fallback" -Level WARNING
+        try {
+            $cs = Get-CimInstance -ClassName Win32_ComputerSystem -ErrorAction Stop
+            if ($cs.PartOfDomain) {
+                $state.IsDomainJoined = $true
+                $state.DomainName = $cs.Domain
+                $state.Label = 'On-premises AD only'
+            }
+        } catch { }
+    }
+    return [pscustomobject]$state
+}
+
+function Initialize-ReportState {
+    $Script:ReportRows = [System.Collections.Generic.List[string]]::new()
+    $Script:PassCount  = 0
+    $Script:FailCount  = 0
+    $Script:WarnCount  = 0
+    $Script:InfoCount  = 0
+}
+
+function Add-ReportRow {
+    param(
+        [Parameter(Mandatory)][string]$Check,
+        [Parameter(Mandatory)][string]$Result,
+        [Parameter(Mandatory)][ValidateSet('PASS','FAIL','WARN','INFO')][string]$Status,
+        [string]$Detail = ''
+    )
+    switch ($Status) {
+        'PASS' { $Script:PassCount++ }
+        'FAIL' { $Script:FailCount++ }
+        'WARN' { $Script:WarnCount++ }
+        'INFO' { $Script:InfoCount++ }
+    }
+    $safeCheck  = [System.Net.WebUtility]::HtmlEncode($Check)
+    $safeResult = [System.Net.WebUtility]::HtmlEncode($Result)
+    $safeDetail = [System.Net.WebUtility]::HtmlEncode($Detail)
+    $badge = "<span class='badge $($Status.ToLower())'>$Status</span>"
+    $Script:ReportRows.Add("<tr><td>$safeCheck</td><td>$safeResult</td><td>$badge</td><td><small>$safeDetail</small></td></tr>")
+}
+
+function Export-HtmlReport {
+    param(
+        [Parameter(Mandatory)][string]$Title,
+        [Parameter(Mandatory)][string]$JoinState,
+        [Parameter(Mandatory)][string]$ComputerName,
+        [Parameter(Mandatory)][string]$LogPath,
+        [Parameter(Mandatory)][string]$ScriptFileName,
+        [Parameter(Mandatory)][string]$ReportPath
+    )
+    $reportDir = Split-Path -Parent $ReportPath
+    if (-not (Test-Path $reportDir)) {
+        New-Item -ItemType Directory -Path $reportDir -Force | Out-Null
+    }
+    $tableRows = ($Script:ReportRows -join "`n")
+    $timestamp = Get-Date -Format 'yyyy-MM-dd HH:mm:ss'
+    $titleEnc  = [System.Net.WebUtility]::HtmlEncode($Title)
+    $joinEnc   = [System.Net.WebUtility]::HtmlEncode($JoinState)
+    $compEnc   = [System.Net.WebUtility]::HtmlEncode($ComputerName)
+    $logEnc    = [System.Net.WebUtility]::HtmlEncode($LogPath)
+    $fileEnc   = [System.Net.WebUtility]::HtmlEncode($ScriptFileName)
+
+    $sb = New-Object System.Text.StringBuilder
+    [void]$sb.AppendLine('<!DOCTYPE html>')
+    [void]$sb.AppendLine('<html lang="en">')
+    [void]$sb.AppendLine('<head>')
+    [void]$sb.AppendLine('<meta charset="UTF-8">')
+    [void]$sb.AppendLine("<title>$titleEnc</title>")
+    [void]$sb.AppendLine('<style>')
+    [void]$sb.AppendLine('  * { box-sizing:border-box; margin:0; padding:0; }')
+    [void]$sb.AppendLine('  body { font-family:''Segoe UI'',Arial,sans-serif; background:#0f1117; color:#e2e8f0; padding:24px; }')
+    [void]$sb.AppendLine('  h1 { color:#63b3ed; margin-bottom:4px; font-size:1.6rem; }')
+    [void]$sb.AppendLine('  .meta { color:#718096; font-size:.85rem; margin-bottom:20px; }')
+    [void]$sb.AppendLine('  .meta span { margin-right:18px; }')
+    [void]$sb.AppendLine('  .summary { display:flex; gap:14px; margin-bottom:20px; flex-wrap:wrap; }')
+    [void]$sb.AppendLine('  .card { background:#1a1f2e; border-radius:8px; padding:14px 20px; min-width:120px; }')
+    [void]$sb.AppendLine('  .card .num { font-size:2rem; font-weight:700; }')
+    [void]$sb.AppendLine('  .card .lbl { font-size:.75rem; color:#718096; text-transform:uppercase; }')
+    [void]$sb.AppendLine('  .green{color:#68d391} .red{color:#fc8181} .yellow{color:#f6e05e} .blue{color:#63b3ed}')
+    [void]$sb.AppendLine('  table { width:100%; border-collapse:collapse; background:#1a1f2e; border-radius:8px; overflow:hidden; }')
+    [void]$sb.AppendLine('  th { background:#2d3748; color:#90cdf4; text-align:left; padding:10px 14px; font-size:.8rem; text-transform:uppercase; letter-spacing:.05em; }')
+    [void]$sb.AppendLine('  td { padding:9px 14px; border-bottom:1px solid #2d3748; font-size:.88rem; vertical-align:top; }')
+    [void]$sb.AppendLine('  tr:last-child td { border-bottom:none; }')
+    [void]$sb.AppendLine('  tr:hover td { background:#232a3b; }')
+    [void]$sb.AppendLine('  .badge { display:inline-block; padding:2px 10px; border-radius:999px; font-size:.75rem; font-weight:700; }')
+    [void]$sb.AppendLine('  .pass{background:#22543d;color:#68d391} .fail{background:#742a2a;color:#fc8181}')
+    [void]$sb.AppendLine('  .warn{background:#744210;color:#f6e05e} .info{background:#1a365d;color:#63b3ed}')
+    [void]$sb.AppendLine('  footer { margin-top:16px; color:#4a5568; font-size:.8rem; }')
+    [void]$sb.AppendLine('</style>')
+    [void]$sb.AppendLine('</head>')
+    [void]$sb.AppendLine('<body>')
+    [void]$sb.AppendLine("<h1>🔧 $titleEnc</h1>")
+    [void]$sb.AppendLine('<div class="meta">')
+    [void]$sb.AppendLine("  <span>🖥️ <strong>$compEnc</strong></span>")
+    [void]$sb.AppendLine("  <span>🔗 Join State: <strong>$joinEnc</strong></span>")
+    [void]$sb.AppendLine("  <span>🕐 $timestamp</span>")
+    [void]$sb.AppendLine("  <span>📄 Log: $logEnc</span>")
+    [void]$sb.AppendLine('</div>')
+    [void]$sb.AppendLine('<div class="summary" id="summary"></div>')
+    [void]$sb.AppendLine('<table>')
+    [void]$sb.AppendLine('  <thead><tr><th>Check</th><th>Result</th><th>Status</th><th>Detail</th></tr></thead>')
+    [void]$sb.AppendLine('  <tbody>')
+    [void]$sb.AppendLine($tableRows)
+    [void]$sb.AppendLine('  </tbody>')
+    [void]$sb.AppendLine('</table>')
+    [void]$sb.AppendLine("<footer>IT-Repair-Scripts v1.0.0 — $fileEnc</footer>")
+    [void]$sb.AppendLine('<script>')
+    [void]$sb.AppendLine('  const rows=document.querySelectorAll("tbody tr");')
+    [void]$sb.AppendLine('  const c={PASS:0,FAIL:0,WARN:0,INFO:0};')
+    [void]$sb.AppendLine('  rows.forEach(r=>{const b=r.querySelector(".badge");if(b)c[b.textContent.trim()]=(c[b.textContent.trim()]||0)+1;});')
+    [void]$sb.AppendLine('  const col={PASS:"green",FAIL:"red",WARN:"yellow",INFO:"blue"};')
+    [void]$sb.AppendLine('  const lbl={PASS:"Passed",FAIL:"Failed",WARN:"Warnings",INFO:"Info"};')
+    [void]$sb.AppendLine('  const s=document.getElementById("summary");')
+    [void]$sb.AppendLine('  Object.entries(c).forEach(([k,v])=>{if(v>0)s.innerHTML+=`<div class="card"><div class="num ${col[k]}">${v}</div><div class="lbl">${lbl[k]}</div></div>`;});')
+    [void]$sb.AppendLine('</script>')
+    [void]$sb.AppendLine('</body>')
+    [void]$sb.AppendLine('</html>')
+    Set-Content -Path $ReportPath -Value $sb.ToString() -Encoding UTF8
+    return $ReportPath
+}
+
+function Open-HtmlReportIfInteractive {
+    param([Parameter(Mandatory)][string]$ReportPath)
+    $isSystem = ([Security.Principal.WindowsIdentity]::GetCurrent().Name -match 'SYSTEM')
+    $sessionName = $env:SESSIONNAME
+    $isIntune = ($env:USERNAME -eq 'SYSTEM') -or $isSystem -or ($sessionName -eq 'Service-0x0')
+    if (-not $isIntune -and (Test-Path $ReportPath)) {
+        try { Start-Process $ReportPath } catch { Write-Status "Could not open report: $($_.Exception.Message)" -Level WARNING }
+    } else {
+        Write-Status "Report browser open suppressed (SYSTEM/Intune session)" -Level INFO
+    }
+}
+
+function Write-CompletionSummary {
+    param([string]$LogPath, [string]$ReportPath)
+    Write-Host "`n┌─────────────────────────────────────────┐" -ForegroundColor Cyan
+    Write-Host "│         SCRIPT COMPLETE                 │" -ForegroundColor Cyan
+    Write-Host "├─────────────────────────────────────────┤" -ForegroundColor Cyan
+    Write-Host "│  PASS  : $($Script:PassCount)" -ForegroundColor Green
+    Write-Host "│  FAIL  : $($Script:FailCount)" -ForegroundColor Red
+    Write-Host "│  WARN  : $($Script:WarnCount)" -ForegroundColor Yellow
+    Write-Host "│  Log   : $LogPath" -ForegroundColor Gray
+    Write-Host "│  Report: $ReportPath" -ForegroundColor Gray
+    Write-Host "└─────────────────────────────────────────┘" -ForegroundColor Cyan
+}
+
+function Backup-RegistryKey {
+    param(
+        [Parameter(Mandatory)][string]$KeyPath,
+        [Parameter(Mandatory)][string]$BackupDir
+    )
+    if (-not (Test-Path $BackupDir)) { New-Item -ItemType Directory -Path $BackupDir -Force | Out-Null }
+    $safeName = ($KeyPath -replace '[\\/:*?"<>|]', '_')
+    $backupFile = Join-Path $BackupDir ("{0}_{1}.reg" -f $safeName, (Get-Date -Format 'yyyyMMdd_HHmmss'))
+    if (Test-Path $KeyPath) {
+        & reg.exe export $KeyPath $backupFile /y 2>$null | Out-Null
+        if (Test-Path $backupFile) {
+            Write-Status "Registry backup saved: $backupFile" -Level SUCCESS
+            Write-Status "Rollback: reg import `"$backupFile`"" -Level INFO
+            return $backupFile
+        }
+    }
+    Write-Status "No registry key to backup or export failed: $KeyPath" -Level WARNING
+    return $null
+}
+
+function Get-ScriptExitCode {
+    if ($Script:FailCount -gt 0) { return 2 }
+    if ($Script:WarnCount -gt 0) { return 1 }
+    return 0
+}
+
+Initialize-ReportState
+$exitCode=0; $Activity='Signature Pad Driver Check'; $totalSteps=8; $Name='Signature-Pad-Driver-Check'; $Folder='20_Peripheral-Specialty'
+try {
+    Write-SectionBanner 'INITIALIZATION'
+    Write-ProgressStep 1 $totalSteps $Activity 'Join-state'
+    $Join=Get-JoinState
+    Write-Status "Join state: $($Join.Label)" -Level INFO
+    Add-ReportRow -Check 'Computer' -Result $env:COMPUTERNAME -Status 'INFO' -Detail $Join.Label
+    Add-ReportRow -Check 'Module' -Result '20_Peripheral-Specialty' -Status 'INFO' -Detail 'ITSupport'
+        Write-SectionBanner 'ITSUPPORT PHASE10'
+        Add-ReportRow -Check 'User' -Result $env:USERNAME -Status 'INFO' -Detail $env:USERPROFILE
+        Write-ProgressStep 2 $totalSteps $Activity 'Context'
+        if ($Name -match 'Outlook|Meeting|Mailbox|Inbox|Room-Finder|Out-Of-Office') {
+            Get-Process OUTLOOK -EA SilentlyContinue | ForEach-Object { Add-ReportRow -Check 'Outlook' -Result "PID $($_.Id)" -Status 'INFO' -Detail '' }
+            if ($PSCmdlet.ShouldProcess('Outlook','Stop for repair path')) {
+                Get-Process OUTLOOK -EA SilentlyContinue | Stop-Process -Force -EA SilentlyContinue
+                Add-ReportRow -Check 'Outlook quit' -Result 'Stopped' -Status 'PASS' -Detail 'Relaunch after fix'
+            }
+            $disabled = 'HKCU:\Software\Microsoft\Office\16.0\Outlook\Resiliency\DisabledItems'
+            if (Test-Path $disabled) {
+                Backup-RegistryKey -KeyPath 'HKCU:\Software\Microsoft\Office\16.0\Outlook\Resiliency' -BackupDir 'C:\IT-Logs\Backups'|Out-Null
+                Remove-Item $disabled -Recurse -Force -EA SilentlyContinue
+                Add-ReportRow -Check 'DisabledItems' -Result 'Cleared' -Status 'PASS' -Detail ''
+            }
+        }
+        if ($Name -match 'Edge|Chrome|Browser|Extension|Password-Sync') {
+            foreach ($p in @('msedge','chrome')) {
+                if ($PSCmdlet.ShouldProcess($p,'Stop browser')) { Get-Process $p -EA SilentlyContinue | Stop-Process -Force -EA SilentlyContinue }
+            }
+            Add-ReportRow -Check 'Browsers' -Result 'Quit attempted' -Status 'PASS' -Detail 'Clear cache via Settings if still broken'
+            $assoc = cmd /c 'ftype htmlfile' 2>&1 | Out-String
+            Add-ReportRow -Check 'htmlfile assoc' -Result $assoc.Trim() -Status 'INFO' -Detail ''
+        }
+        if ($Name -match 'Dock|USB-C|Keyboard|Airplane|Hotel|Captive|Travel') {
+            Get-PnpDevice -Class Monitor,Display,Battery -EA SilentlyContinue | Select-Object -First 12 | ForEach-Object {
+                Add-ReportRow -Check $_.FriendlyName -Result $_.Status -Status $(if($_.Status -eq 'OK'){'PASS'}else{'WARN'}) -Detail $_.Class
+            }
+            if ($Name -match 'Captive|Hotel|Airplane') {
+                try {
+                    $n = Invoke-WebRequest 'http://www.msftconnecttest.com/connecttest.txt' -UseBasicParsing -TimeoutSec 10
+                    Add-ReportRow -Check 'NCSI' -Result $n.Content.Trim() -Status $(if($n.Content -match 'Microsoft'){'PASS'}else{'WARN'}) -Detail ''
+                } catch { Add-ReportRow -Check 'NCSI' -Result 'Fail' -Status 'WARN' -Detail $_.Exception.Message }
+            }
+        }
+        if ($Name -match 'Phishing|Suspicious|USB-Unknown|Screen-Lock|BitLocker-Recovery') {
+            Add-ReportRow -Check 'Security helpdesk' -Result 'Collect headers/evidence; no auto-delete mail' -Status 'INFO' -Detail ''
+            $pack = Join-Path 'C:\IT-Logs' ("SecHD_{0}" -f (Get-Date -Format 'yyyyMMdd_HHmmss'))
+            New-Item $pack -ItemType Directory -Force|Out-Null
+            dsregcmd /status 2>&1 | Out-File "$pack\dsreg.txt"
+            Add-ReportRow -Check 'Evidence folder' -Result $pack -Status 'PASS' -Detail ''
+        }
+        if ($Name -match 'Onboarding|Offboarding|Autopilot|Company-Portal|Primary-User|New-Hire') {
+            Add-ReportRow -Check 'Join' -Result $Join.Label -Status 'INFO' -Detail ''
+            $cp = Get-AppxPackage *CompanyPortal* -EA SilentlyContinue
+            Add-ReportRow -Check 'Company Portal' -Result $(if($cp){$cp.Version}else{'Missing'}) -Status $(if($cp){'PASS'}else{'WARN'}) -Detail ''
+            if ($Name -match 'Company-Portal' -and $PSCmdlet.ShouldProcess('Company Portal','Try re-register')) {
+                Get-AppxPackage Microsoft.CompanyPortal -EA SilentlyContinue | ForEach-Object {
+                    Add-AppxPackage -DisableDevelopmentMode -Register "$($_.InstallLocation)\AppxManifest.xml" -EA SilentlyContinue
+                }
+                Add-ReportRow -Check 'Portal re-register' -Result 'Attempted' -Status 'INFO' -Detail ''
+            }
+        }
+        if ($Name -match 'Signature|Barcode|Label-Printer|Headset|Smart-Card') {
+            Get-PnpDevice -EA SilentlyContinue | Where-Object { $_.FriendlyName -match 'Scanner|Barcode|Smart|Headset|Signature|Zebra|Brother' } | Select-Object -First 15 | ForEach-Object {
+                Add-ReportRow -Check $_.FriendlyName -Result $_.Status -Status $(if($_.Status -eq 'OK'){'PASS'}else{'WARN'}) -Detail $_.Class
+            }
+            if ($Name -match 'Label|Printer' -and $PSCmdlet.ShouldProcess('Spooler','Clear queue')) {
+                Stop-Service Spooler -Force -EA SilentlyContinue
+                Remove-Item "$env:SystemRoot\System32\spool\PRINTERS\*" -Force -EA SilentlyContinue
+                Start-Service Spooler -EA SilentlyContinue
+                Add-ReportRow -Check 'Spooler reset' -Result 'Done' -Status 'PASS' -Detail ''
+            }
+        }
+        Write-ProgressStep 5 $totalSteps $Activity 'ITSupport P10 done'
+    Write-ProgressStep $totalSteps $totalSteps $Activity 'Report'
+    Export-HtmlReport -Title 'Signature Pad Driver Check' -JoinState $Join.Label -ComputerName $env:COMPUTERNAME -LogPath $LogPath -ScriptFileName $ScriptName -ReportPath $ReportPath|Out-Null
+    Write-CompletionSummary -LogPath $LogPath -ReportPath $ReportPath
+    if($OpenReport){Open-HtmlReportIfInteractive -ReportPath $ReportPath}
+    $exitCode=Get-ScriptExitCode
+} catch {
+    Write-Status "FATAL: $($_.Exception.Message)" -Level ERROR
+    try{Add-ReportRow -Check 'Fatal' -Result 'Exception' -Status 'FAIL' -Detail $_.Exception.Message; Export-HtmlReport -Title 'Signature Pad Driver Check' -JoinState 'Unknown' -ComputerName $env:COMPUTERNAME -LogPath $LogPath -ScriptFileName $ScriptName -ReportPath $ReportPath|Out-Null}catch{}
+    $exitCode=2
+} finally { Write-Progress -Activity $Activity -Completed; Stop-Transcript|Out-Null }
+exit $exitCode
