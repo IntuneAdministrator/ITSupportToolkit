@@ -1,120 +1,136 @@
-### 👨‍💻 Hey there! I’m [Allester Padovani](https://www.linkedin.com/in/allester-padovani/)
+# IT Repair & Diagnostic Toolkit
 
-🚀 **Intune & Microsoft 365 Specialist** focused on endpoint management, identity, and cloud security.
+Production helpdesk / SysAdmin toolkit for **Windows** and **macOS**, with a unified catalog GUI, risk labels, logging, and HTML reports.
 
----
-
-### 🚀 Focus Areas
-- 📱 Endpoint Management (Microsoft Intune)
-- 🔐 Identity & Access (Microsoft Entra)
-- 🛡️ Security & Compliance (Microsoft Defender Suite)
-- ⚡ Automation & Scripting (PowerShell)
+**Author:** Allester Padovani
 
 ---
 
-```powershell
-# Introduction Script for GitHub Profile
+## Overview
 
-function Show-Introduction {
-    $intro = @"
-Hello from the Ozarks! 🌄  
-I'm Allester Padovani — IT Specialist Pro turned Intune whisperer.  
+| Layer | Purpose |
+|-------|---------|
+| `IT Repair & Diagnostic Toolkit.exe` | Windows start screen → **Windows** opens `MASTER-MENU.ps1`; **macOS** opens `MASTER-MENU-GUI.py` |
+| `MASTER-MENU.ps1 -Gui` | WPF catalog (Windows host; can browse macOS scripts) |
+| `IT Repair & Diagnostic Toolkit.app` | **macOS GUI for technicians** (no Python install) — build with `Build-MacApp.sh` |
+| `IT Repair & Diagnostic Toolkit-macOS.command` | Finder helper → prefers `.app`, else `python3 MASTER-MENU-GUI.py` |
+| `MASTER-MENU-GUI.py` | Source GUI (dev / Windows macOS-browse / Mac before you build the `.app`) |
+| `Windows/` · `macOS/` | Script libraries (`SysAdmin` + `ITSupport`) |
 
-What I do (and love doing):
-- Helping small & mid-sized businesses conquer Microsoft Intune 💼🛠️  
-- Supporting 100+ end users like a calm ninja in tech chaos 🧘‍♂️  
-- Simplifying Microsoft 365 deployments ☁️✨  
-- Writing PowerShell scripts that automate headaches away ⚡  
+Catalog shape: **Platform → Role → Theme → Category (`NN_Name`) → Scripts**.
 
-Fun Fact: I've probably fixed more printers than I've had coffee ☕😄  
+---
 
-Motto: "If it works smoothly, nobody notices. If it breaks, I fix it fast."  
-
-Check out my projects and tools built to make IT life easier.  
-Feel free to fork, follow, or connect 🙌  
-
-Cheers,  
-Allester
-"@
-    Write-Host $intro
-}
-
-Show-Introduction
+## Folder structure
 
 ```
+IT-Repair-Scripts/
+├── IT Repair & Diagnostic Toolkit.exe
+├── IT Repair & Diagnostic Toolkit.app          # after Mac build (optional until built)
+├── IT Repair & Diagnostic Toolkit-macOS.command
+├── Build-MacApp.sh
+├── MASTER-MENU.ps1
+├── MASTER-MENU-GUI.py
+├── README.md · LICENSE · RISK-INVENTORY.md
+├── Install & Deployments/         # local launchers + Intune / Jamf / AD packages
+│   ├── Run Locally Windows/
+│   ├── Run Locally macOS/
+│   ├── Run On Active Directory Windows/
+│   ├── Run On Active Directory macOS/
+│   ├── Run On Cloud Intune Windows/
+│   ├── Run On Cloud Intune macOS/
+│   └── Run On Cloud Jamf macOS/
+├── Windows/
+│   ├── SysAdmin/NN_Category/*.ps1
+│   └── ITSupport/NN_Category/*.ps1
+└── macOS/
+    ├── SysAdmin/NN_Category/*.{sh,ps1}
+    └── ITSupport/NN_Category/*.{sh,ps1}
+```
 
-### 🤖 Scripting & Core Tools
+Menus discover **only scripts in the category root** (non-recursive). Imported Tech Support binaries live once under `Windows/SysAdmin/65_Imported-Tech-Support-Tools/_Tools/`; IT Support `Launch-*.ps1` wrappers point there.
 
-<p>
-  <a href="https://docs.microsoft.com/powershell/" target="_blank">
-    <img src="https://msicons.com/icons/general/10825-icon-service-Powershell.svg" width="40"/>
-  </a>&nbsp;&nbsp;&nbsp;&nbsp;
+---
 
-  <a href="https://learn.microsoft.com/windows/terminal/" target="_blank">
-    <img src="https://cdn.jsdelivr.net/gh/selfhst/icons/svg/windows-terminal.svg" width="40"/>
-  </a>
-</p>
+## Requirements
 
-## 🛠️ Tools & Technologies
+| Host | Requirement |
+|------|-------------|
+| Windows | Windows 10/11, PowerShell **5.1+** (7.x supported), .NET for WPF GUI |
+| macOS (technicians) | **`IT Repair & Diagnostic Toolkit.app`** only — no Python install |
+| macOS (build once) | Mac with Python **3.9+** + `tkinter` to run `Build-MacApp.sh` |
+| Python GUI (source) | Python 3.9+ stdlib (`tkinter`) — Windows browse / Mac before `.app` exists |
+| Imported M365 | Optional modules: ExchangeOnlineManagement, Microsoft.Graph.*, PnP.PowerShell |
 
-<p align="left">
+---
 
-  <!-- Tenant & Platform -->
-  <a href="https://admin.microsoft.com/" target="_blank">
-    <img src="https://raw.githubusercontent.com/homarr-labs/dashboard-icons/main/svg/microsoft-365-admin-center.svg" width="40"/>
-  </a>&nbsp;&nbsp;&nbsp;&nbsp;
+## How to run
 
-  <!-- Identity -->
-  <a href="https://www.microsoft.com/security/business/microsoft-entra" target="_blank">
-    <img src="https://msicons.com/icons/entra/Microsoft Entra Product Family.svg" width="40"/>
-  </a>&nbsp;&nbsp;&nbsp;&nbsp;
+**Windows**
 
-  <a href="https://learn.microsoft.com/entra/global-secure-access/" target="_blank">
-    <img src="https://msicons.com/icons/identity/03309-icon-service-Entra-Global-Secure-Access.svg" width="40"/>
-  </a>&nbsp;&nbsp;&nbsp;&nbsp;
+1. Keep `IT Repair & Diagnostic Toolkit.exe` next to `MASTER-MENU.ps1`.
+2. Double-click the exe → choose Platform + Role → **Open Toolkit**.
+3. Or: `powershell -NoProfile -ExecutionPolicy Bypass -File .\MASTER-MENU.ps1 -Gui`
 
-  <!-- Endpoint Management -->
-  <a href="https://learn.microsoft.com/mem/intune/" target="_blank">
-    <img src="https://raw.githubusercontent.com/homarr-labs/dashboard-icons/main/svg/microsoft-intune.svg" width="40"/>
-  </a>&nbsp;&nbsp;&nbsp;&nbsp;
+**macOS (technicians — no Python)**
 
-  <!-- Security -->
-  <a href="https://www.microsoft.com/security/business/microsoft-defender" target="_blank">
-    <img src="https://cdn.jsdelivr.net/gh/selfhst/icons/svg/microsoft-defender.svg" width="40"/>
-  </a>&nbsp;&nbsp;&nbsp;&nbsp;
+1. Double-click `IT Repair & Diagnostic Toolkit.app` (must sit next to `Windows/` and `macOS/`).
+2. Or double-click `IT Repair & Diagnostic Toolkit-macOS.command` (prefers the `.app` if present).
 
-  <a href="https://www.microsoft.com/microsoft-purview" target="_blank">
-    <img src="https://msicons.com/icons/fabric/purview_color.svg" width="40"/>
-  </a>&nbsp;&nbsp;&nbsp;&nbsp;
+Theme preference is stored locally in `toolkit-theme.cfg` (created automatically; do not redistribute that file).
 
-  <!-- Productivity -->
-  <a href="https://exchange.microsoft.com/" target="_blank">
-    <img src="https://raw.githubusercontent.com/homarr-labs/dashboard-icons/main/svg/microsoft-exchange.svg" width="40"/>
-  </a>&nbsp;&nbsp;&nbsp;&nbsp;
+---
 
-  <!-- Cloud PC -->
-  <a href="https://www.microsoft.com/windows-365" target="_blank">
-    <img src="https://msicons.com/icons/Windows-365/Windows365-logo.svg" width="40"/>
-  </a>
+## Building `IT Repair & Diagnostic Toolkit.app` (important)
 
-</p>
+Apple requires a **Mac** to produce a `.app`. You **cannot** generate `IT Repair & Diagnostic Toolkit.app` from Windows.
 
-### 📊 Statistics
+| Myth | Reality |
+|------|---------|
+| Clicking **Yes** on the EXE when Platform = macOS builds the `.app` | **No.** Yes only browses the macOS catalog on Windows with Python. |
+| `Build-MacApp.sh` works on Windows | **No.** That script runs **only on macOS**. |
+| The EXE can compile the Mac app | **No.** The EXE can only **detect** if `.app` already exists and skip the “first time” warning. |
 
-<a href="https://github.com/IntuneAdministrator">
-  <img 
-    align="left" 
-    alt="GitHub Stats" 
-    height="200" 
-    src="https://github-stats-extended.vercel.app/api?username=IntuneAdministrator&rank_icon=github&show_icons=true&include_all_commits=true&theme=dark" 
-  />
-</a>
+### Option A — Build on a Mac (once)
 
-<a href="https://github.com/IntuneAdministrator">
-  <img 
-    align="left" 
-    alt="All Technologies" 
-    height="200" 
-    src="https://github-stats-extended.vercel.app/api/top-langs?username=IntuneAdministrator&layout=compact&langs_count=12&theme=dark" 
-  />
-</a>
+```bash
+cd /path/to/IT-Repair-Scripts
+chmod +x Build-MacApp.sh
+zsh Build-MacApp.sh
+```
+
+Output: `IT Repair & Diagnostic Toolkit.app` in the toolkit root (same folder as the Windows `.exe`).
+
+### Option B — No Mac nearby
+
+You need access to a Mac (physical, borrowed, or cloud Mac) to run Option A once. There is no Windows-side way to produce the `.app`.
+
+### After the `.app` exists
+
+- Copy **`IT Repair & Diagnostic Toolkit.app` + `Windows/` + `macOS/`** to helpdesk Macs.
+- Technicians open the `.app` — **no Python install**.
+- On Windows, if the EXE finds `IT Repair & Diagnostic Toolkit.app` in the root, the “FIRST TIME” build warning is **skipped**.
+
+---
+
+## Exit codes (Intune / Jamf)
+
+| Code | Meaning |
+|------|---------|
+| `0` | Success (warnings may still be logged) |
+| `1` | Failure |
+
+---
+
+## Security notes
+
+- Prefer interactive password prompts; avoid `USER_PASSWORD` / `CERT_PASSWORD` in env/argv on shared hosts.
+- `trustRoot` certificate install requires `TRUST_ROOT=YES` **and** `CONFIRM=YES`.
+- Review [RISK-INVENTORY.md](RISK-INVENTORY.md) before running Dangerous scripts.
+- Toolkit binaries are **not Authenticode-signed** by default — pin via AppLocker / Gatekeeper policy in enterprise.
+
+---
+
+## License
+
+Proprietary — see [LICENSE](LICENSE). Third-party tools under nested `_Tools` (Imported Tech Support Tools) keep their own licenses.
